@@ -1,0 +1,287 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  DOCTOR
+  NURSE
+  RECEPTIONIST
+  PATIENT
+}
+
+enum Sex {
+  MALE
+  FEMALE
+  OTHER
+  UNKNOWN
+}
+
+enum ConsultationStatus {
+  DRAFT
+  IN_PROGRESS
+  AWAITING_REVIEW
+  APPROVED
+  ARCHIVED
+}
+
+enum MessageRole {
+  SYSTEM
+  ASSISTANT
+  USER
+  CLINICIAN
+}
+
+enum Severity {
+  INFO
+  MODERATE
+  URGENT
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(DOCTOR)
+  abhaId       String?  @unique
+  abhaVerified Boolean  @default(false)
+  patientId    String?
+  patientRecord Patient? @relation("UserPatient", fields: [patientId], references: [id], onDelete: SetNull)
+  hospitalId   String?
+  hospital     Hospital? @relation("UserHospital", fields: [hospitalId], references: [id], onDelete: SetNull)
+  language     String   @default("en")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  consultations Consultation[] @relation("ClinicianConsultations")
+  auditLogs     AuditLog[]
+  notes         ClinicianNote[]
+  @@index([email])
+  @@index([abhaId])
+  @@index([role])
+  @@index([hospitalId])
+}
+
+model Patient {
+  id             String   @id @default(cuid())
+  name           String
+  age            Int?
+  dateOfBirth    DateTime?
+  sex            Sex      @default(UNKNOWN)
+  phone          String?
+  location       String?
+  language       String   @default("en")
+  mrn            String   @unique
+  allergies      String   @default("")
+  emergencyName  String?
+  emergencyPhone String?
+  consentGiven   Boolean  @default(false)
+  abhaId         String?  @unique
+  abhaVerified   Boolean  @default(false)
+  linkedUser     User[]   @relation("UserPatient")
+  pastIllnesses  PastIllness[]
+  documents      PatientDocument[]
+  voiceNotes     VoiceNote[]
+  visits         PatientHospitalVisit[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  consultations  Consultation[]
+  @@index([name])
+  @@index([mrn])
+  @@index([abhaId])
+}
+
+model Hospital {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  city      String   @default("")
+  code      String   @unique
+  createdAt DateTime @default(now())
+  staff     User[]   @relation("UserHospital")
+  visits    PatientHospitalVisit[]
+  @@index([code])
+}
+
+model PatientHospitalVisit {
+  id         String   @id @default(cuid())
+  patientId  String
+  patient    Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  consent    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  @@unique([patientId, hospitalId])
+  @@index([hospitalId])
+  @@index([patientId])
+}
+model Consultation {
+  id             String             @id @default(cuid())
+  patientId      String
+  patient        Patient            @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  clinicianId    String?
+  clinician      User?              @relation("ClinicianConsultations", fields: [clinicianId], references: [id], onDelete: SetNull)
+  hospitalId     String?
+  chiefComplaint String             @default("")
+  language       String             @default("en")
+  status         ConsultationStatus @default(DRAFT)
+  progress       Int                @default(0)
+  aiSummary      String             @default("")
+  clinicianNotes String             @default("")
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  messages  ConversationMessage[]
+  responses HistoryResponse[]
+  summary   ClinicalHistorySummary?
+  redFlags  RedFlag[]
+  notes     ClinicianNote[]
+  auditLogs AuditLog[]
+  @@index([patientId])
+  @@index([status])
+  @@index([hospitalId])
+  @@index([updatedAt])
+}
+
+model HistoryResponse {
+  id             String       @id @default(cuid())
+  consultationId String
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  section        String
+  question       String
+  answer         String
+  language       String       @default("en")
+  createdAt      DateTime     @default(now())
+  @@index([consultationId])
+  @@index([section])
+}
+
+model ConversationMessage {
+  id             String       @id @default(cuid())
+  consultationId String
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  role           MessageRole
+  content        String
+  language       String       @default("en")
+  createdAt      DateTime     @default(now())
+  @@index([consultationId])
+}
+
+model ClinicalHistorySummary {
+  id                 String      @id @default(cuid())
+  consultationId     String      @unique
+  consultation       Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  chiefComplaint     String      @default("")
+  presentIllness     String      @default("")
+  pastMedicalHistory String      @default("")
+  medicationHistory  String      @default("")
+  allergies          String      @default("")
+  familyHistory      String      @default("")
+  socialHistory      String      @default("")
+  reviewOfSystems    String      @default("")
+  redFlagSummary     String      @default("")
+  missingInfo        String      @default("")
+  conciseSummary     String      @default("")
+  version            Int         @default(1)
+  approvedBy         String?
+  approvedAt         DateTime?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+}
+
+model RedFlag {
+  id             String       @id @default(cuid())
+  consultationId String
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  label          String
+  detail         String       @default("")
+  severity       Severity     @default(URGENT)
+  acknowledged   Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  @@index([consultationId])
+}
+
+model ClinicianNote {
+  id             String      @id @default(cuid())
+  consultationId String
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  authorId       String?
+  author         User?       @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  content        String
+  createdAt      DateTime    @default(now())
+  @@index([consultationId])
+}
+
+model AuditLog {
+  id             String       @id @default(cuid())
+  actorId        String?
+  actor          User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action         String
+  entity         String
+  entityId       String?
+  consultationId String?
+  consultation   Consultation? @relation(fields: [consultationId], references: [id], onDelete: SetNull)
+  metadata       String       @default("")
+  createdAt      DateTime     @default(now())
+  @@index([action])
+  @@index([createdAt])
+}
+
+model HospitalSetting {
+  id              String   @id @default(cuid())
+  hospitalName    String   @default("CityCare General Hospital")
+  tagline         String   @default("Compassionate, structured, safe care")
+  logoText        String   @default("ClinIQ")
+  primaryLanguage String   @default("en")
+  consentText     String   @default("I consent to AI-assisted history documentation.")
+  escalationNote  String   @default("If any red-flag answer appears, follow hospital escalation procedures immediately.")
+  updatedAt       DateTime @updatedAt
+}
+
+model PastIllness {
+  id           String   @id @default(cuid())
+  patientId    String
+  patient      Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  condition    String
+  diagnosedOn  String   @default("")
+  status       String   @default("ongoing")
+  notes        String   @default("")
+  source       String   @default("self")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@index([patientId])
+}
+
+model PatientDocument {
+  id           String   @id @default(cuid())
+  patientId    String
+  patient      Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  title        String
+  fileName     String   @default("")
+  mimeType     String   @default("")
+  fileData     String   @default("")
+  ocrText      String   @default("")
+  ocrStatus    String   @default("pending")
+  uploadedBy   String?
+  createdAt    DateTime @default(now())
+  @@index([patientId])
+}
+
+model VoiceNote {
+  id          String   @id @default(cuid())
+  patientId   String
+  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  title       String   @default("Voice note")
+  audioData   String   @default("")
+  mimeType    String   @default("audio/webm")
+  durationSec Int      @default(0)
+  transcript  String   @default("")
+  language    String   @default("en")
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  @@index([patientId])
+}
+
